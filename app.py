@@ -452,7 +452,7 @@ def show_detection():
         txn_type = st.selectbox("🏪 Transaction Type",
             ["Online Shopping","ATM Withdrawal","Restaurant/Food","Travel/Hotel","Grocery/Supermarket"])
         c3, c4 = st.columns(2)
-        with c3: st.selectbox("💳 Card Type", ["Credit Card","Debit Card"])
+        with c3: card_type = st.selectbox("💳 Card Type", ["Credit Card","Debit Card"])
         with c4: location = st.selectbox("📍 Location",["Same City","Different City","International","Online"])
         H("""<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;
              padding:12px 14px;margin-top:12px;">

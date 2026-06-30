@@ -1,4 +1,3 @@
-import struct
 """
 database.py
 Handles all SQLite database operations:
@@ -6,6 +5,7 @@ Handles all SQLite database operations:
   - Transaction history logging
 """
 
+import struct
 import sqlite3
 import hashlib
 import os
