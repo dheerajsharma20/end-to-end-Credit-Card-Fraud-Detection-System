@@ -4,10 +4,12 @@ import joblib
 import time
 import struct
 from pathlib import Path
-from database import init_db, register_user, login_user, log_transaction, get_user_transactions, get_user_stats
+from database import (init_db, register_user, login_user, log_transaction, get_user_transactions,
+                       get_user_stats, save_profile_details, mark_profile_skipped)
+from datetime import date
 
 st.set_page_config(
-    page_title="FraudGuard",
+    page_title="FraudGuard Command",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -20,7 +22,8 @@ def load_model():
     return joblib.load(Path(__file__).parent / "fraud_model.pkl")
 model = load_model()
 
-for k, v in [("user", None), ("active_page", "dashboard"), ("preset_load", None)]:
+for k, v in [("user", None), ("active_page", "dashboard"), ("preset_load", None), ("view", "landing"),
+             ("pending_signup", None), ("auth_notice", None)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -36,259 +39,482 @@ def safe_conf(val):
 # ── GLOBAL STYLES ──────────────────────────────────────────────────────────────
 H("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap');
-
-*, *::before, *::after { box-sizing: border-box; }
-html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif !important;
-    font-size: 14px !important;
-    line-height: 1.5 !important;
-    color: #111827 !important;
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box;}
+html,body,[class*="css"]{font-family:'Space Grotesk',sans-serif!important;}
+#MainMenu,footer{visibility:hidden;}
+header{background:transparent!important;box-shadow:none!important;}
+header [data-testid="stToolbar"]{visibility:hidden!important;}
+[data-testid="stSidebarCollapsedControl"]{visibility:visible!important;display:flex!important;z-index:999999!important;}
+[data-testid="stSidebarCollapsedControl"] button{background:#0a0d0a!important;border:1px solid rgba(0,255,102,0.4)!important;border-radius:6px!important;}
+[data-testid="stSidebarCollapsedControl"] svg{color:#00ff66!important;fill:#00ff66!important;}
+[data-testid="collapsedControl"]{visibility:visible!important;display:flex!important;z-index:999999!important;}
+[data-testid="collapsedControl"] svg{color:#00ff66!important;fill:#00ff66!important;}
+.stApp{background:#050705!important;}
+section[data-testid="stSidebar"]{background:#0a0d0a!important;border-right:1px solid rgba(0,255,102,0.1)!important;}
+.stButton>button{
+    background:#00ff66!important;
+    color:#000!important;border:1px solid #00ff66!important;border-radius:4px!important;
+    padding:11px 24px!important;font-size:15px!important;font-weight:700!important;
+    font-family:'JetBrains Mono',monospace!important;width:100%!important;
+    letter-spacing:1px!important;text-transform:uppercase!important;
+    box-shadow:0 0 20px rgba(0,255,102,0.25)!important;
+    transition:all 0.2s ease!important;
 }
-#MainMenu, footer { visibility: hidden; }
-
-/* ── Keep header visible so sidebar toggle (>>) always works ── */
-header[data-testid="stHeader"] {
-    background: transparent !important;
-    height: 2.5rem !important;
+.stButton>button:hover{
+    background:#00e85c!important;
+    box-shadow:0 0 30px rgba(0,255,102,0.5)!important;
+    transform:translateY(-1px)!important;
 }
-/* Style the sidebar collapse/expand control so it's visible on white bg */
-button[data-testid="stSidebarCollapseButton"],
-button[data-testid="baseButton-headerNoPadding"],
-[data-testid="collapsedControl"] {
-    color: #528ff0 !important;
-    visibility: visible !important;
-    opacity: 1 !important;
+.stTextInput label,.stNumberInput label,.stSelectbox label{
+    color:rgba(0,255,102,0.7)!important;font-size:13px!important;
+    font-weight:700!important;letter-spacing:1px!important;text-transform:uppercase!important;
+    font-family:'JetBrains Mono',monospace!important;
 }
-
-/* ── Streamlit layout reset ── */
-.block-container {
-    padding-top: 1rem !important;
-    padding-left: 1.5rem !important;
-    padding-right: 1.5rem !important;
-    padding-bottom: 1rem !important;
-    max-width: 100% !important;
+.stTextInput input,.stNumberInput input{
+    background:#0a0d0a!important;
+    border:1px solid rgba(0,255,102,0.2)!important;
+    border-radius:6px!important;color:#e8ffe8!important;
+    font-size:16px!important;padding:12px 14px!important;font-family:'JetBrains Mono',monospace!important;
 }
-
-/* ── App + sidebar background ── */
-.stApp { background: #f3f4f6 !important; }
-section[data-testid="stSidebar"] {
-    background: #ffffff !important;
-    border-right: 1px solid #e5e7eb !important;
+.stTextInput input:focus,.stNumberInput input:focus{
+    border-color:rgba(0,255,102,0.6)!important;
+    box-shadow:0 0 0 2px rgba(0,255,102,0.1)!important;
 }
-section[data-testid="stSidebar"] > div:first-child { padding-top: 0 !important; }
-
-/* ── Labels ── */
-.stTextInput label, .stNumberInput label, .stSelectbox label {
-    font-size: 13px !important; font-weight: 600 !important;
-    color: #374151 !important; margin-bottom: 4px !important;
+div[data-baseweb="select"]>div{
+    background:#0a0d0a!important;
+    border:1px solid rgba(0,255,102,0.2)!important;
+    border-radius:4px!important;color:#e8ffe8!important;
+    font-family:'JetBrains Mono',monospace!important;
 }
-.stCheckbox label { font-size: 13px !important; font-weight: 500 !important; color: #374151 !important; }
-
-/* ── Inputs ── */
-.stTextInput input, .stNumberInput input {
-    background: #ffffff !important; border: 1.5px solid #e5e7eb !important;
-    border-radius: 8px !important; color: #111827 !important;
-    font-size: 14px !important; padding: 9px 12px !important;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+.stCheckbox label{color:rgba(255,255,255,0.7)!important;font-size:13px!important;font-family:'JetBrains Mono',monospace!important;}
+.stTabs [data-baseweb="tab-list"]{
+    background:#0a0d0a;border-radius:4px;padding:3px;
+    border:1px solid rgba(0,255,102,0.15);gap:2px;
 }
-.stTextInput input:focus, .stNumberInput input:focus {
-    border-color: #528ff0 !important;
-    box-shadow: 0 0 0 3px rgba(82,143,240,0.1) !important;
+.stTabs [data-baseweb="tab"]{
+    border-radius:4px;font-size:14px;font-weight:700;
+    color:rgba(255,255,255,0.4);padding:12px 26px;
+    font-family:'JetBrains Mono',monospace;letter-spacing:1px;text-transform:uppercase;
 }
-.stTextInput input::placeholder, .stNumberInput input::placeholder { color: #9ca3af !important; }
-
-/* ── Selects ── */
-div[data-baseweb="select"] > div {
-    background: #ffffff !important; border: 1.5px solid #e5e7eb !important;
-    border-radius: 8px !important; color: #111827 !important;
-    font-size: 14px !important; min-height: 42px !important;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+.stTabs [aria-selected="true"]{
+    background:rgba(0,255,102,0.1)!important;
+    color:#00ff66!important;
+    border:1px solid rgba(0,255,102,0.3)!important;
 }
-div[data-baseweb="select"] * { color: #111827 !important; }
-
-/* ── All buttons default blue ── */
-.stButton > button {
-    background: #528ff0 !important; color: #fff !important;
-    border: none !important; border-radius: 8px !important;
-    padding: 10px 20px !important; font-size: 14px !important;
-    font-weight: 700 !important; width: 100% !important;
-    transition: all 0.18s ease !important;
-    box-shadow: 0 2px 6px rgba(82,143,240,0.28) !important;
+.stTabs [data-baseweb="tab-border"]{display:none!important;}
+::-webkit-scrollbar{width:4px;}
+::-webkit-scrollbar-track{background:#050705;}
+::-webkit-scrollbar-thumb{background:#00ff66;border-radius:100px;}
+/* ── Reclaim Streamlit's default chrome so the app fits one screen ── */
+header[data-testid="stHeader"]{height:2.2rem!important;min-height:2.2rem!important;}
+.block-container{
+    padding-top:0.6rem!important;
+    padding-bottom:0.6rem!important;
+    max-width:100%!important;
 }
-.stButton > button:hover {
-    background: #3b5fc0 !important;
-    box-shadow: 0 4px 14px rgba(82,143,240,0.38) !important;
-    transform: translateY(-1px) !important;
-}
-
-/* ── Back button override ── */
-[data-testid="stButton"].back-btn > button {
-    background: #ffffff !important; color: #374151 !important;
-    border: 1.5px solid #d1d5db !important;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
-    font-size: 13px !important; padding: 7px 16px !important;
-    font-weight: 600 !important; width: auto !important;
-}
-[data-testid="stButton"].back-btn > button:hover {
-    border-color: #528ff0 !important; color: #528ff0 !important;
-    background: #f0f7ff !important; transform: none !important;
-    box-shadow: none !important;
-}
-
-/* ── Tabs ── */
-.stTabs [data-baseweb="tab-list"] {
-    background: #f3f4f6; border-radius: 10px; padding: 3px;
-    border: 1px solid #e5e7eb; gap: 3px;
-}
-.stTabs [data-baseweb="tab"] {
-    border-radius: 7px; font-size: 14px; font-weight: 600;
-    color: #6b7280; padding: 9px 22px;
-}
-.stTabs [aria-selected="true"] {
-    background: #ffffff !important; color: #528ff0 !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.09) !important;
-}
-.stTabs [data-baseweb="tab-border"] { display: none !important; }
-
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 100px; }
-
-.stSpinner p { font-size: 14px !important; color: #6b7280 !important; }
-.stCheckbox { margin-bottom: 0; }
+[data-testid="stVerticalBlock"]{gap:0.35rem!important;}
+div[data-testid="stElementContainer"]{margin-bottom:0!important;}
+section[data-testid="stSidebar"] .block-container{padding-top:0.4rem!important;}
 </style>
 """)
 
-# ══════════════════════════════════════════════════════
-#  HELPERS
-# ══════════════════════════════════════════════════════
-def hero(page_label, title, subtitle):
+def mono(text, color="rgba(255,255,255,0.4)", size="11px", weight="600", spacing="1.2px"):
+    return f"<span style='font-family:JetBrains Mono,monospace;color:{color};font-size:{size};font-weight:{weight};letter-spacing:{spacing};text-transform:uppercase;'>{text}</span>"
+
+# ══════════════════════════════════════
+#  TOP NAV (command bar)
+# ══════════════════════════════════════
+def show_topbar(active="Command Center"):
+    u = st.session_state.user
     H(f"""
-    <div style="background:linear-gradient(135deg,#528ff0,#3b5fc0);
-         border-radius:12px;padding:20px 24px 18px;
-         margin-bottom:16px;position:relative;overflow:hidden;">
-        <div style="position:absolute;top:-30px;right:-30px;width:140px;height:140px;
-             background:rgba(255,255,255,0.07);border-radius:50%;"></div>
-        <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.55);
-             letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;">{page_label}</div>
-        <div style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.4px;margin-bottom:3px;">
-            {title}</div>
-        <div style="font-size:13px;color:rgba(255,255,255,0.65);">{subtitle}</div>
+    <div style="background:#050705;border-bottom:1px solid rgba(0,255,102,0.15);
+         padding:0 40px;display:flex;align-items:center;justify-content:space-between;
+         height:64px;position:sticky;top:0;z-index:100;">
+        <div style="display:flex;align-items:center;gap:16px;">
+            <div style="width:52px;height:52px;border:2px solid #00ff66;border-radius:9px;
+                 display:flex;align-items:center;justify-content:center;
+                 box-shadow:0 0 20px rgba(0,255,102,0.35);">
+                <span style="font-size:26px;">🛡️</span>
+            </div>
+            <div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:800;
+                     color:#fff;letter-spacing:0.5px;">
+                    FRAUD<span style="color:#00ff66;">GUARD</span>
+                    <span style="font-size:13px;color:rgba(255,255,255,0.3);
+                         font-weight:500;margin-left:4px;">v2</span>
+                </div>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:20px;">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <div style="width:6px;height:6px;background:#00ff66;border-radius:50%;
+                     box-shadow:0 0 8px rgba(0,255,102,0.8);
+                     animation:blip 2s ease-in-out infinite;"></div>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:13px;
+                     color:#00ff66;letter-spacing:1px;text-transform:uppercase;font-weight:700;">
+                     {active}</span>
+            </div>
+            <div style="width:1px;height:20px;background:rgba(255,255,255,0.1);"></div>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <div style="width:28px;height:28px;border-radius:4px;
+                     background:rgba(0,255,102,0.1);border:1px solid rgba(0,255,102,0.3);
+                     display:flex;align-items:center;justify-content:center;
+                     font-family:'JetBrains Mono',monospace;font-size:11px;
+                     font-weight:700;color:#00ff66;">
+                     {"".join([w[0].upper() for w in u['full_name'].split()[:2]])}
+                </div>
+                <div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:14px;
+                         color:#fff;font-weight:700;">{u['full_name']}</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:9px;
+                         color:rgba(0,255,102,0.5);letter-spacing:0.5px;">ANALYST · SEC-LVL-1</div>
+                </div>
+            </div>
+        </div>
     </div>
+    <style>
+    @keyframes blip{{0%,100%{{opacity:1}}50%{{opacity:0.3}}}}
+    @keyframes scan{{0%{{background-position:0 0}}100%{{background-position:0 40px}}}}
+    </style>
     """)
 
-def stat_card(label, value, color, top_color):
-    return f"""
-    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;
-         padding:14px 16px;border-top:3px solid {top_color};
-         box-shadow:0 1px 3px rgba(0,0,0,0.04);">
-        <div style="font-size:10px;font-weight:600;color:#9ca3af;
-             letter-spacing:0.6px;text-transform:uppercase;margin-bottom:6px;">{label}</div>
-        <div style="font-size:28px;font-weight:800;color:{color};
-             font-family:'JetBrains Mono',monospace;line-height:1;">{value}</div>
-    </div>"""
-
-def card_open(extra=""):
-    H(f'<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;'
-      f'padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);{extra}">')
-
-def card_close():
-    H("</div>")
-
-def section_header(title):
-    H(f'<div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:10px;'
-      f'display:flex;align-items:center;gap:8px;">'
-      f'<div style="width:3px;height:16px;background:#528ff0;border-radius:2px;"></div>'
-      f'{title}</div>')
-
-def badge(result):
-    if result == "FRAUD":
-        return '<span style="background:#fef2f2;color:#ef4444;font-size:11px;font-weight:700;padding:3px 10px;border-radius:100px;border:1px solid #fecaca;">🚨 FRAUD</span>'
-    return '<span style="background:#f0fdf4;color:#10b981;font-size:11px;font-weight:700;padding:3px 10px;border-radius:100px;border:1px solid #bbf7d0;">✅ LEGIT</span>'
-
-def show_back_button(key="back_btn"):
-    col_back, _ = st.columns([0.12, 0.88])
-    with col_back:
-        st.markdown('<span class="back-btn">', unsafe_allow_html=True)
-        if st.button("← Back", key=key):
-            st.session_state.active_page = "dashboard"; st.rerun()
-        st.markdown('</span>', unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════
+# ══════════════════════════════════════
 #  SIDEBAR
-# ══════════════════════════════════════════════════════
+# ══════════════════════════════════════
 def show_sidebar():
     with st.sidebar:
         H("""
-        <div style="padding:18px 14px 10px;">
-            <div style="display:flex;align-items:center;gap:9px;margin-bottom:16px;">
-                <div style="width:30px;height:30px;background:#528ff0;border-radius:7px;
-                     display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">🛡️</div>
-                <div>
-                    <div style="font-size:14px;font-weight:700;color:#111827;">FraudGuard</div>
-                    <div style="font-size:10px;color:#9ca3af;">Detection System</div>
-                </div>
-            </div>
-            <div style="height:1px;background:#f0f0f0;margin-bottom:12px;"></div>
-            <div style="font-size:10px;font-weight:700;color:#9ca3af;letter-spacing:1px;
-                 text-transform:uppercase;margin-bottom:8px;">Menu</div>
+        <div style="padding:24px 4px 16px;">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10px;
+                 color:rgba(255,255,255,0.25);letter-spacing:1.5px;
+                 text-transform:uppercase;margin-bottom:12px;">Overview</div>
         </div>
         """)
-        if st.button("📊  Dashboard",       use_container_width=True, key="nav_dash"):
+        if st.button("▦  COMMAND CENTER", use_container_width=True, key="nav_dash"):
             st.session_state.active_page = "dashboard"; st.rerun()
-        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-        if st.button("🔍  Fraud Detection", use_container_width=True, key="nav_det"):
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        if st.button("◎  DETECTION", use_container_width=True, key="nav_det"):
             st.session_state.active_page = "detection"; st.rerun()
-        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-        if st.button("📋  History",         use_container_width=True, key="nav_hist"):
-            st.session_state.active_page = "history";   st.rerun()
-        H('<div style="padding:0 14px;"><div style="height:1px;background:#f0f0f0;margin:12px 0;"></div></div>')
-        if st.button("🚪  Logout",          use_container_width=True, key="nav_logout"):
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        if st.button("▤  INCIDENTS", use_container_width=True, key="nav_hist"):
+            st.session_state.active_page = "history"; st.rerun()
+        H('<div style="height:1px;background:rgba(0,255,102,0.1);margin:24px 0;"></div>')
+        if st.button("→  LOGOUT", use_container_width=True, key="nav_out"):
             st.session_state.user = None; st.rerun()
-        u = st.session_state.user
-        if u:
-            initials = "".join([w[0].upper() for w in u["full_name"].split()[:2]])
-            H(f"""
-            <div style="padding:12px 14px;margin-top:8px;">
-                <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:9px;
-                     padding:9px 11px;display:flex;align-items:center;gap:8px;">
-                    <div style="width:26px;height:26px;background:#528ff0;border-radius:50%;
-                         display:flex;align-items:center;justify-content:center;
-                         font-size:10px;font-weight:700;color:#fff;flex-shrink:0;">{initials}</div>
-                    <div style="overflow:hidden;">
-                        <div style="font-size:12px;font-weight:600;color:#111827;
-                             white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{u['full_name']}</div>
-                        <div style="font-size:10px;color:#9ca3af;
-                             white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{u['email']}</div>
-                    </div>
+
+# ══════════════════════════════════════
+#  ALWAYS-VISIBLE PAGE NAV / BACK STRIP
+#  (real buttons — doesn't depend on the sidebar being open)
+# ══════════════════════════════════════
+def show_page_nav(active_page):
+    H('<div style="position:relative;z-index:10;padding:8px 40px 0;">')
+    n1, n2, n3, n4, n5 = st.columns([1, 1, 1, 0.15, 1])
+    with n1:
+        if st.button("▦ DASHBOARD", key="pagenav_dash", use_container_width=True,
+                     type="primary" if active_page == "dashboard" else "secondary"):
+            st.session_state.active_page = "dashboard"; st.rerun()
+    with n2:
+        if st.button("◎ DETECTION", key="pagenav_det", use_container_width=True,
+                     type="primary" if active_page == "detection" else "secondary"):
+            st.session_state.active_page = "detection"; st.rerun()
+    with n3:
+        if st.button("▤ INCIDENTS", key="pagenav_hist", use_container_width=True,
+                     type="primary" if active_page == "history" else "secondary"):
+            st.session_state.active_page = "history"; st.rerun()
+    with n5:
+        if st.button("→ LOGOUT", key="pagenav_logout", use_container_width=True):
+            st.session_state.user = None
+            st.session_state.view = "landing"
+            st.rerun()
+    H('</div>')
+
+# ══════════════════════════════════════
+#  BACKGROUND GRID (terminal feel)
+# ══════════════════════════════════════
+def show_bg():
+    H("""
+    <div style="position:fixed;top:0;left:0;width:100%;height:100%;
+         pointer-events:none;z-index:0;overflow:hidden;opacity:0.5;">
+        <div style="position:absolute;top:0;left:0;width:100%;height:100%;
+            background-image:
+                linear-gradient(rgba(0,255,102,0.025) 1px,transparent 1px),
+                linear-gradient(90deg,rgba(0,255,102,0.025) 1px,transparent 1px);
+            background-size:40px 40px;"></div>
+    </div>
+    """)
+
+# ══════════════════════════════════════
+#  METRIC CARD
+# ══════════════════════════════════════
+def metric_card(label, value, sub, color="#00ff66", icon=""):
+    return f"""
+    <div style="background:#0a0d0a;border:1px solid rgba(0,255,102,0.1);
+         border-radius:6px;padding:16px 20px;position:relative;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12px;
+                 color:rgba(255,255,255,0.4);letter-spacing:1.3px;text-transform:uppercase;font-weight:700;">
+                 {label}</span>
+            <span style="font-size:16px;opacity:0.5;">{icon}</span>
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:42px;font-weight:800;
+             color:{color};line-height:1;text-shadow:0 0 20px {color}55;">{value}</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;
+             color:rgba(255,255,255,0.3);margin-top:10px;">{sub}</div>
+    </div>
+    """
+
+# ══════════════════════════════════════
+#  CREDIT CARD VISUAL
+# ══════════════════════════════════════
+def cc_html(number="4532 •••• •••• 7891", holder="FRAUD ANALYSIS", network="VISA"):
+    return f"""
+    <div style="background:#0a0d0a;border:1px solid rgba(0,255,102,0.25);
+         border-radius:8px;padding:16px 22px;position:relative;overflow:hidden;
+         min-height:165px;margin-bottom:20px;">
+        <div style="position:absolute;top:0;left:0;right:0;height:2px;
+             background:linear-gradient(90deg,transparent,#00ff66,transparent);"></div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;
+             color:#00ff66;letter-spacing:2px;margin-bottom:20px;">🛡 FRAUDGUARD</div>
+        <div style="width:36px;height:26px;background:rgba(0,255,102,0.15);
+             border:1px solid rgba(0,255,102,0.3);border-radius:4px;margin-bottom:18px;"></div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:500;
+             color:rgba(0,255,102,0.7);letter-spacing:4px;margin-bottom:16px;">{number}</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;">
+            <div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:8px;
+                     color:rgba(255,255,255,0.3);letter-spacing:1.5px;margin-bottom:3px;">CARD HOLDER</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:12px;
+                     color:rgba(255,255,255,0.7);letter-spacing:1px;">{holder}</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;
+                 color:rgba(255,255,255,0.4);">{network}</div>
+        </div>
+    </div>
+    """
+
+# ══════════════════════════════════════
+#  SECTION LABEL
+# ══════════════════════════════════════
+def section_label(text, count=None):
+    extra = f'<span style="color:rgba(255,255,255,0.2);font-weight:400;"> · {count}</span>' if count else ""
+    H(f"""
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+        <div style="width:6px;height:6px;background:#00ff66;border-radius:50%;
+             box-shadow:0 0 8px rgba(0,255,102,0.6);"></div>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;
+             color:#fff;letter-spacing:0.5px;text-transform:uppercase;">{text}{extra}</span>
+    </div>
+    """)
+
+def panel_open(extra=""):
+    H(f"""<div style="background:#0a0d0a;border:1px solid rgba(0,255,102,0.1);
+         border-radius:8px;padding:18px;{extra}">""")
+
+def panel_close():
+    H("</div>")
+
+# ══════════════════════════════════════
+#  LANDING PAGE
+# ══════════════════════════════════════
+def show_landing_page():
+    show_bg()
+    H("""
+    <div style="position:relative;z-index:10;border-bottom:1px solid rgba(0,255,102,0.12);
+         padding:0 48px;display:flex;align-items:center;justify-content:space-between;height:62px;">
+        <div style="display:flex;align-items:center;gap:14px;">
+            <div style="width:54px;height:54px;border:2px solid #00ff66;border-radius:10px;
+                 display:flex;align-items:center;justify-content:center;
+                 box-shadow:0 0 20px rgba(0,255,102,0.35);font-size:27px;">🛡️</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:29px;font-weight:800;color:#fff;">
+                FRAUD<span style="color:#00ff66;">GUARD</span>
+                <span style="font-size:14px;color:rgba(255,255,255,0.3);font-weight:500;margin-left:4px;">v2</span>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:40px;">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;
+                 color:#00ff66;letter-spacing:1px;">HOME</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600;
+                 color:rgba(255,255,255,0.45);letter-spacing:1px;">DASHBOARD</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600;
+                 color:rgba(255,255,255,0.45);letter-spacing:1px;">DETECTION</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600;
+                 color:rgba(255,255,255,0.45);letter-spacing:1px;">DOCS</span>
+        </div>
+    </div>
+    """)
+
+    c1, c2 = st.columns([1, 1], gap="large")
+    with c1:
+        H("""
+        <div style="position:relative;z-index:10;padding:18px 48px 10px 48px;">
+            <div style="display:inline-flex;align-items:center;gap:8px;
+                 background:rgba(0,255,102,0.06);border:1px solid rgba(0,255,102,0.25);
+                 border-radius:3px;padding:6px 14px;margin-bottom:18px;">
+                <div style="width:6px;height:6px;background:#00ff66;border-radius:50%;
+                     box-shadow:0 0 6px rgba(0,255,102,0.8);"></div>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:12px;
+                     font-weight:600;color:#00ff66;letter-spacing:1.5px;">
+                     TRAINED ON 284,807 REAL TRANSACTIONS</span>
+            </div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:46px;font-weight:900;
+                 color:#fff;line-height:1.08;margin-bottom:20px;letter-spacing:-1.5px;">
+                Stop fraud<br>
+                <span style="color:#00ff66;">before</span> the<br>
+                chargeback.
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:16px;
+                 color:rgba(255,255,255,0.45);line-height:1.7;margin-bottom:12px;max-width:460px;">
+                FraudGuard v2 scores every transaction in real-time using an
+                XGBoost model trained on real fraud data. Deploy in minutes.
+                Block bad actors instantly.
+            </div>
+        </div>
+        """)
+        b1, b2, b3 = st.columns([1.1, 1, 1])
+        with b1:
+            if st.button("DEPLOY FREE →", key="landing_deploy", use_container_width=True):
+                st.session_state.view = "auth"
+                st.session_state.auth_tab = "register"
+                st.rerun()
+        with b2:
+            if st.button("SIGN IN", key="landing_signin", use_container_width=True):
+                st.session_state.view = "auth"
+                st.session_state.auth_tab = "login"
+                st.rerun()
+        H("<div style='height:14px'></div>")
+
+    with c2:
+        H("""
+        <div style="position:relative;z-index:10;padding:6px 48px;
+             display:flex;align-items:center;justify-content:center;">
+            <div style="position:relative;width:250px;height:250px;">
+                <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                     width:250px;height:250px;border:1px solid rgba(0,255,102,0.12);
+                     border-radius:50%;"></div>
+                <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                     width:180px;height:180px;border:1px solid rgba(0,255,102,0.18);
+                     border-radius:50%;"></div>
+                <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                     width:114px;height:114px;border:1px solid rgba(0,255,102,0.25);
+                     border-radius:50%;"></div>
+                <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                     font-size:60px;filter:drop-shadow(0 0 30px rgba(0,255,102,0.5));">🛡️</div>
+                <div style="position:absolute;top:50%;left:50%;
+                     transform:translate(-50%,47px);
+                     font-family:'JetBrains Mono',monospace;font-size:11px;color:#00ff66;
+                     letter-spacing:3px;">SECURED</div>
+                <div style="position:absolute;top:15%;left:10%;width:8px;height:8px;
+                     background:#00ff66;border-radius:50%;box-shadow:0 0 10px rgba(0,255,102,0.9);
+                     animation:blip 2s ease-in-out infinite;"></div>
+                <div style="position:absolute;bottom:20%;right:8%;width:6px;height:6px;
+                     background:#00ff66;border-radius:50%;box-shadow:0 0 10px rgba(0,255,102,0.9);
+                     animation:blip 2.5s ease-in-out infinite 0.5s;"></div>
+                <div style="position:absolute;top:35%;right:2%;width:5px;height:5px;
+                     background:#00ff66;border-radius:50%;box-shadow:0 0 10px rgba(0,255,102,0.9);
+                     animation:blip 3s ease-in-out infinite 1s;"></div>
+            </div>
+        </div>
+        """)
+
+    H("""
+    <div style="position:relative;z-index:10;padding:2px 48px 14px;
+         display:grid;grid-template-columns:repeat(3,1fr);gap:20px;max-width:1100px;">
+        <div style="background:#0a0d0a;border:1px solid rgba(0,255,102,0.12);border-radius:8px;padding:18px;">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:800;
+                 color:#00ff66;margin-bottom:8px;">99.9%</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:13px;
+                 color:rgba(255,255,255,0.4);letter-spacing:0.5px;">Detection accuracy on test data</div>
+        </div>
+        <div style="background:#0a0d0a;border:1px solid rgba(0,255,102,0.12);border-radius:8px;padding:18px;">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:800;
+                 color:#00ff66;margin-bottom:8px;">&lt;1s</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:13px;
+                 color:rgba(255,255,255,0.4);letter-spacing:0.5px;">Average analysis response time</div>
+        </div>
+        <div style="background:#0a0d0a;border:1px solid rgba(0,255,102,0.12);border-radius:8px;padding:18px;">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:800;
+                 color:#00ff66;margin-bottom:8px;">284K</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:13px;
+                 color:rgba(255,255,255,0.4);letter-spacing:0.5px;">Real transactions used for training</div>
+        </div>
+    </div>
+    """)
+
+# ══════════════════════════════════════
+#  AUTH PAGE
+# ══════════════════════════════════════
+def show_auth_page():
+    show_bg()
+    if "auth_tab" not in st.session_state:
+        st.session_state.auth_tab = "login"
+
+    H('<div style="position:relative;z-index:10;padding:10px 48px 0;'
+      'display:flex;align-items:center;justify-content:space-between;">'
+      '<div style="display:flex;align-items:center;gap:14px;">'
+      '<div style="width:54px;height:54px;border:2px solid #00ff66;border-radius:10px;'
+      'display:flex;align-items:center;justify-content:center;'
+      'box-shadow:0 0 20px rgba(0,255,102,0.35);font-size:27px;">🛡️</div>'
+      '<div style="font-family:\'JetBrains Mono\',monospace;font-size:29px;font-weight:800;color:#fff;">'
+      'FRAUD<span style="color:#00ff66;">GUARD</span></div></div></div>')
+
+    _, back_col = st.columns([8, 1.6])
+    with back_col:
+        if st.button("← BACK TO HOME", key="back_home", use_container_width=True):
+            st.session_state.view = "landing"
+            st.rerun()
+
+    H("<div style='height:8px'></div>")
+    _, mid, _ = st.columns([0.8, 1.6, 0.8])
+    with mid:
+        # Custom tab switcher (session-state driven so we can flip tabs
+        # programmatically, e.g. after a duplicate-email signup attempt).
+        t1, t2 = st.columns(2)
+        with t1:
+            if st.button("🔐  SIGN IN", key="tab_btn_login", use_container_width=True,
+                         type="primary" if st.session_state.auth_tab == "login" else "secondary"):
+                st.session_state.auth_tab = "login"
+                st.rerun()
+        with t2:
+            if st.button("✨  CREATE ACCOUNT", key="tab_btn_reg", use_container_width=True,
+                         type="primary" if st.session_state.auth_tab == "register" else "secondary"):
+                st.session_state.auth_tab = "register"
+                st.rerun()
+        H("<div style='height:10px'></div>")
+
+        if st.session_state.auth_notice:
+            kind, text = st.session_state.auth_notice
+            color = "#00ff66" if kind == "ok" else "#ff6b6b"
+            bg    = "rgba(0,255,102,0.08)" if kind == "ok" else "rgba(255,50,50,0.08)"
+            H(f'<div style="background:{bg};border:1px solid {color}55;border-radius:4px;'
+              f'padding:14px 18px;color:{color};font-family:JetBrains Mono,monospace;'
+              f'font-size:14px;margin-bottom:18px;">{text}</div>')
+            st.session_state.auth_notice = None
+
+        if st.session_state.auth_tab == "login":
+            H("""
+            <div style="padding:8px 0 4px;">
+                <div style="display:inline-flex;align-items:center;gap:8px;
+                     background:rgba(0,255,102,0.06);border:1px solid rgba(0,255,102,0.2);
+                     padding:6px 16px;border-radius:3px;margin-bottom:12px;">
+                    <div style="width:7px;height:7px;background:#00ff66;border-radius:50%;"></div>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:12px;
+                         color:#00ff66;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;">
+                         Access Terminal</span>
                 </div>
+                <div style="font-family:'Space Grotesk',sans-serif;font-size:34px;font-weight:800;
+                     color:#fff;margin-bottom:10px;">Welcome back.</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:15px;
+                     color:rgba(255,255,255,0.4);margin-bottom:14px;line-height:1.6;">
+                     Sign in to access your fraud detection dashboard.</div>
             </div>
             """)
-
-# ══════════════════════════════════════════════════════
-#  AUTH
-# ══════════════════════════════════════════════════════
-def show_auth_page():
-    _, mid, _ = st.columns([1, 1.1, 1])
-    with mid:
-        H("""<div style="padding:32px 0 20px;text-align:center;">
-            <div style="display:inline-flex;align-items:center;justify-content:center;
-                 width:44px;height:44px;background:#528ff0;border-radius:11px;
-                 font-size:22px;margin-bottom:10px;box-shadow:0 4px 12px rgba(82,143,240,0.35);">🛡️</div>
-            <div style="font-size:22px;font-weight:800;color:#111827;letter-spacing:-0.4px;margin-bottom:3px;">FraudGuard</div>
-            <div style="font-size:13px;color:#9ca3af;">AI-powered credit card fraud detection</div>
-        </div>""")
-        card_open()
-        tab_login, tab_reg = st.tabs(["🔐  Sign In", "✨  Create Account"])
-        with tab_login:
-            H('<div style="padding:10px 0 4px;"><div style="font-size:17px;font-weight:800;color:#111827;margin-bottom:2px;">Welcome back 👋</div><div style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Sign in to your account</div></div>')
-            email_l = st.text_input("Email", key="login_email", placeholder="you@example.com")
-            pass_l  = st.text_input("Password", key="login_pass", type="password", placeholder="Enter your password")
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-            if st.button("Sign In →", key="btn_login"):
+            email_l = st.text_input("Email", key="login_email", placeholder="analyst@fraudguard.io")
+            pass_l  = st.text_input("Password", key="login_pass", type="password", placeholder="••••••••••••")
+            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+            if st.button("SIGN IN →", key="btn_login"):
                 if not email_l or not pass_l:
-                    H('<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;color:#dc2626;font-size:13px;font-weight:600;margin-top:10px;">⚠️ Please fill in all fields.</div>')
+                    H('<div style="background:rgba(255,50,50,0.08);border:1px solid rgba(255,50,50,0.3);border-radius:4px;padding:14px 18px;color:#ff6b6b;font-family:JetBrains Mono,monospace;font-size:14px;margin-top:14px;">⚠ ALL FIELDS REQUIRED</div>')
                 else:
                     user = login_user(email_l, pass_l)
                     if user:
@@ -296,110 +522,305 @@ def show_auth_page():
                         st.session_state.active_page = "dashboard"
                         st.rerun()
                     else:
-                        H('<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;color:#dc2626;font-size:13px;font-weight:600;margin-top:10px;">⚠️ Invalid email or password.</div>')
-        with tab_reg:
-            H('<div style="padding:10px 0 4px;"><div style="font-size:17px;font-weight:800;color:#111827;margin-bottom:2px;">Create Account ✨</div><div style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Get started with FraudGuard</div></div>')
+                        H('<div style="background:rgba(255,50,50,0.08);border:1px solid rgba(255,50,50,0.3);border-radius:4px;padding:14px 18px;color:#ff6b6b;font-family:JetBrains Mono,monospace;font-size:14px;margin-top:14px;">⚠ INVALID CREDENTIALS</div>')
+
+        else:
+            H("""
+            <div style="padding:8px 0 4px;">
+                <div style="display:inline-flex;align-items:center;gap:8px;
+                     background:rgba(0,255,102,0.06);border:1px solid rgba(0,255,102,0.2);
+                     padding:6px 16px;border-radius:3px;margin-bottom:12px;">
+                    <div style="width:7px;height:7px;background:#00ff66;border-radius:50%;"></div>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:12px;
+                         color:#00ff66;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;">
+                         Create Account</span>
+                </div>
+                <div style="font-family:'Space Grotesk',sans-serif;font-size:34px;font-weight:800;
+                     color:#fff;margin-bottom:10px;">Deploy your shield.</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:15px;
+                     color:rgba(255,255,255,0.4);margin-bottom:14px;line-height:1.6;">
+                     5 minutes to your first blocked transaction.</div>
+            </div>
+            """)
             full_name = st.text_input("Full Name",        key="reg_name",  placeholder="John Doe")
-            email_r   = st.text_input("Email",            key="reg_email", placeholder="you@example.com")
+            email_r   = st.text_input("Email",            key="reg_email", placeholder="analyst@fraudguard.io")
             pass_r    = st.text_input("Password",         key="reg_pass",  type="password", placeholder="Min. 6 characters")
             conf_r    = st.text_input("Confirm Password", key="reg_conf",  type="password", placeholder="Repeat password")
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-            if st.button("Create Account →", key="btn_reg"):
+            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+            if st.button("CREATE COMMAND ACCESS →", key="btn_reg"):
                 if not full_name or not email_r or not pass_r or not conf_r:
-                    H('<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;color:#dc2626;font-size:13px;font-weight:600;margin-top:10px;">⚠️ Please fill in all fields.</div>')
+                    H('<div style="background:rgba(255,50,50,0.08);border:1px solid rgba(255,50,50,0.3);border-radius:4px;padding:14px 18px;color:#ff6b6b;font-family:JetBrains Mono,monospace;font-size:14px;margin-top:14px;">⚠ ALL FIELDS REQUIRED</div>')
                 elif len(pass_r) < 6:
-                    H('<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;color:#dc2626;font-size:13px;font-weight:600;margin-top:10px;">⚠️ Password must be at least 6 characters.</div>')
+                    H('<div style="background:rgba(255,50,50,0.08);border:1px solid rgba(255,50,50,0.3);border-radius:4px;padding:14px 18px;color:#ff6b6b;font-family:JetBrains Mono,monospace;font-size:14px;margin-top:14px;">⚠ PASSWORD TOO SHORT (MIN 6)</div>')
                 elif pass_r != conf_r:
-                    H('<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;color:#dc2626;font-size:13px;font-weight:600;margin-top:10px;">⚠️ Passwords do not match.</div>')
+                    H('<div style="background:rgba(255,50,50,0.08);border:1px solid rgba(255,50,50,0.3);border-radius:4px;padding:14px 18px;color:#ff6b6b;font-family:JetBrains Mono,monospace;font-size:14px;margin-top:14px;">⚠ PASSWORDS DO NOT MATCH</div>')
                 else:
-                    ok, msg = register_user(full_name, email_r, pass_r)
+                    ok, msg, new_user_id = register_user(full_name, email_r, pass_r)
                     if ok:
-                        H(f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;color:#15803d;font-size:13px;font-weight:600;margin-top:10px;">✅ {msg} Please sign in.</div>')
+                        st.session_state.pending_signup = {
+                            "id": new_user_id, "full_name": full_name, "email": email_r
+                        }
+                        st.session_state.view = "profile_setup"
+                        st.rerun()
                     else:
-                        H(f'<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;color:#dc2626;font-size:13px;font-weight:600;margin-top:10px;">⚠️ {msg}</div>')
-        card_close()
+                        # Email already registered → send them straight to Sign In, pre-filled.
+                        st.session_state.auth_tab = "login"
+                        st.session_state["login_email"] = email_r.strip().lower()
+                        st.session_state.auth_notice = (
+                            "err",
+                            f"⚠ {msg.upper()} SIGN IN BELOW INSTEAD."
+                        )
+                        st.rerun()
 
-# ══════════════════════════════════════════════════════
+        H("""
+        <div style="text-align:center;margin-top:16px;font-family:'JetBrains Mono',monospace;
+             font-size:12px;color:rgba(255,255,255,0.2);letter-spacing:1px;">
+             PROTECTED BY SOC-2 · PCI DSS · GDPR
+        </div>
+        """)
+
+# ══════════════════════════════════════
+#  PROFILE SETUP (post-signup)
+# ══════════════════════════════════════
+FRAUD_TYPE_OPTIONS = [
+    "Not applicable / just exploring",
+    "Unauthorized Transaction",
+    "Card Skimming",
+    "Phishing",
+    "Identity Theft",
+    "Other",
+]
+
+def _finish_profile_setup(notice):
+    st.session_state.pending_signup = None
+    st.session_state.view = "auth"
+    st.session_state.auth_tab = "login"
+    st.session_state["login_email"] = notice.pop("email", "")
+    st.session_state.auth_notice = ("ok", notice["text"])
+    st.rerun()
+
+def show_profile_setup():
+    show_bg()
+    pending = st.session_state.pending_signup
+    if not pending:
+        # Nothing to complete (e.g. page refresh) — bounce back to auth.
+        st.session_state.view = "auth"
+        st.rerun()
+        return
+
+    H('<div style="position:relative;z-index:10;padding:10px 48px 0;'
+      'display:flex;align-items:center;justify-content:space-between;">'
+      '<div style="display:flex;align-items:center;gap:14px;">'
+      '<div style="width:54px;height:54px;border:2px solid #00ff66;border-radius:10px;'
+      'display:flex;align-items:center;justify-content:center;'
+      'box-shadow:0 0 20px rgba(0,255,102,0.35);font-size:27px;">🛡️</div>'
+      '<div style="font-family:\'JetBrains Mono\',monospace;font-size:29px;font-weight:800;color:#fff;">'
+      'FRAUD<span style="color:#00ff66;">GUARD</span></div></div></div>')
+
+    H("<div style='height:8px'></div>")
+    _, mid, _ = st.columns([0.6, 1.8, 0.6])
+    with mid:
+        H(f"""
+        <div style="padding:8px 0 4px;">
+            <div style="display:inline-flex;align-items:center;gap:8px;
+                 background:rgba(0,255,102,0.06);border:1px solid rgba(0,255,102,0.2);
+                 padding:6px 16px;border-radius:3px;margin-bottom:12px;">
+                <div style="width:7px;height:7px;background:#00ff66;border-radius:50%;"></div>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:12px;
+                     color:#00ff66;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;">
+                     Step 2 of 2 · Account Details</span>
+            </div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:800;
+                 color:#fff;margin-bottom:10px;">Welcome, {pending['full_name'].split()[0]}. One more step.</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:14px;
+                 color:rgba(255,255,255,0.4);margin-bottom:14px;line-height:1.6;">
+                 Add your card &amp; contact details so we can personalize fraud checks for you.
+                 This step is optional — you can skip it and sign in right away.</div>
+        </div>
+        """)
+
+        panel_open()
+        c1, c2 = st.columns(2)
+        with c1:
+            mobile = st.text_input("Mobile Number", key="ps_mobile", placeholder="98765 43210", max_chars=15)
+        with c2:
+            dob = st.date_input("Date of Birth", key="ps_dob",
+                                 min_value=date(1930, 1, 1), max_value=date.today(),
+                                 value=date(2000, 1, 1))
+        c3, c4 = st.columns(2)
+        with c3:
+            bank_name = st.text_input("Bank Name", key="ps_bank", placeholder="e.g. State Bank of India")
+        with c4:
+            card_number = st.text_input("Card Number", key="ps_card", placeholder="4532 XXXX XXXX 7891", max_chars=19)
+        fraud_type = st.selectbox("Type of Fraud You're Facing / Concerned About",
+                                   FRAUD_TYPE_OPTIONS, key="ps_fraud_type")
+        H('<div style="font-family:JetBrains Mono,monospace;font-size:11px;color:rgba(255,255,255,0.3);'
+          'margin-top:6px;line-height:1.5;">Stored locally in the demo database only — this is not a real '
+          'payment processor, so avoid entering a genuine card number.</div>')
+        H("<div style='height:8px'></div>")
+
+        b1, b2 = st.columns([1.4, 1])
+        with b1:
+            if st.button("✓ SAVE & CONTINUE TO SIGN IN →", key="ps_save", use_container_width=True):
+                save_profile_details(pending["id"], mobile, str(dob), bank_name, card_number, fraud_type)
+                _finish_profile_setup({"email": pending["email"],
+                                        "text": "✓ ACCOUNT CREATED & DETAILS SAVED. SIGN IN BELOW."})
+        with b2:
+            if st.button("SKIP FOR NOW", key="ps_skip", use_container_width=True):
+                mark_profile_skipped(pending["id"])
+                _finish_profile_setup({"email": pending["email"],
+                                        "text": "✓ ACCOUNT CREATED. SIGN IN BELOW."})
+        panel_close()
+
+# ══════════════════════════════════════
 #  DASHBOARD
-# ══════════════════════════════════════════════════════
+# ══════════════════════════════════════
 def show_dashboard():
-    u          = st.session_state.user
-    stats      = get_user_stats(u["id"])
-    txns       = get_user_transactions(u["id"], limit=6)
-    fraud_rate = round(stats["fraud"] / stats["total"] * 100, 1) if stats["total"] > 0 else 0
-    first      = u["full_name"].split()[0]
+    show_bg()
+    show_topbar("LIVE OPERATIONS")
+    show_sidebar()
+    show_page_nav("dashboard")
 
-    hero("DASHBOARD",
-         f"Welcome back, {first}! 🙏",
-         "Real-time fraud protection · 284K rows trained")
+    u     = st.session_state.user
+    stats = get_user_stats(u["id"])
+    txns  = get_user_transactions(u["id"], limit=8)
+    fraud_rate = round(stats["fraud"] / stats["total"] * 100, 1) if stats["total"] > 0 else 0.0
 
-    # ── Stats row ──
-    s1, s2, s3, s4 = st.columns(4, gap="small")
-    s1.markdown(stat_card("Total Checks",  stats['total'],  "#528ff0", "#528ff0"), unsafe_allow_html=True)
-    s2.markdown(stat_card("Legitimate",    stats['legit'],  "#10b981", "#10b981"), unsafe_allow_html=True)
-    s3.markdown(stat_card("Fraud Found",   stats['fraud'],  "#ef4444", "#ef4444"), unsafe_allow_html=True)
-    s4.markdown(stat_card("Fraud Rate",    f"{fraud_rate}%","#f59e0b", "#f59e0b"), unsafe_allow_html=True)
+    H('<div style="position:relative;z-index:10;padding:10px 40px 16px;">')
+    H(f"""
+    <div style="margin-bottom:12px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#00ff66;
+             letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;">● COMMAND CENTER</div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:34px;font-weight:800;color:#fff;">
+            Live Operations
+        </div>
+    </div>
+    """)
 
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    col1, col2 = st.columns([1.6, 1], gap="medium")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: H(metric_card("TOTAL CHECKS", stats['total'], "ALL TIME", "#00ff66", "📊"))
+    with c2: H(metric_card("LEGITIMATE",  stats['legit'], "SAFE TRANSACTIONS", "#00ff66", "✅"))
+    with c3: H(metric_card("FRAUD BLOCKED", stats['fraud'], "THREATS STOPPED", "#ff3355", "🚨"))
+    with c4: H(metric_card("FRAUD RATE",  f"{fraud_rate}%", "OF ALL TRANSACTIONS", "#ffaa00", "📈"))
+
+    H("<div style='height:12px'></div>")
+
+    # Prominent banner pointing to the full transaction form
+    H("""
+    <div style="background:linear-gradient(135deg,rgba(0,255,102,0.08),rgba(0,255,102,0.02));
+         border:1.5px solid rgba(0,255,102,0.35);border-radius:8px;
+         padding:22px 28px;margin-bottom:14px;display:flex;align-items:center;
+         justify-content:space-between;flex-wrap:wrap;gap:16px;">
+        <div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:800;
+                 color:#00ff66;margin-bottom:4px;">▸ WANT TO CHECK A TRANSACTION?</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:13px;
+                 color:rgba(255,255,255,0.45);">
+                 Fill in the amount, type, and location on the Fraud Detection page — the AI does the rest.
+            </div>
+        </div>
+    </div>
+    """)
+    if st.button("◎  FILL TRANSACTION DETAILS → GO TO FRAUD DETECTION", key="dash_banner_cta", use_container_width=True):
+        st.session_state.active_page = "detection"; st.rerun()
+
+    H("<div style='height:12px'></div>")
+    col1, col2 = st.columns([1.6, 1], gap="large")
 
     with col1:
-        section_header("Recent Transactions")
-        card_open()
+        section_label("TRANSACTION LOG", len(txns))
+        panel_open("max-height:min(42vh,330px);overflow-y:auto;")
         if not txns:
-            H('<div style="text-align:center;padding:36px 0;"><div style="font-size:36px;margin-bottom:10px;">📭</div><div style="font-size:16px;font-weight:700;color:#111827;margin-bottom:4px;">No transactions yet</div><div style="font-size:13px;color:#9ca3af;">Go to Fraud Detection to start!</div></div>')
+            H("""
+            <div style="text-align:center;padding:56px 20px;">
+                <div style="font-size:40px;margin-bottom:12px;opacity:0.3;">◌</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:13px;
+                     color:rgba(255,255,255,0.3);letter-spacing:0.5px;">NO TRANSACTIONS LOGGED YET</div>
+            </div>
+            """)
         else:
             rows = ""
-            for t in txns:
-                amt = "{:,.2f}".format(t["amount"])
-                dt  = str(t["checked_at"])[:16]
-                rows += ("<tr>"
-                    "<td style='padding:10px 14px;color:#111827;font-weight:600;font-size:13px;"
-                    "border-bottom:1px solid #f3f4f6;font-family:JetBrains Mono,monospace;'>₹" + amt + "</td>"
-                    "<td style='padding:10px 14px;border-bottom:1px solid #f3f4f6;'>" + badge(t["result"]) + "</td>"
-                    "<td style='padding:10px 14px;color:#528ff0;font-weight:700;font-family:JetBrains Mono,"
-                    "monospace;font-size:13px;border-bottom:1px solid #f3f4f6;'>" + str(safe_conf(t["confidence"])) + "%</td>"
-                    "<td style='padding:10px 14px;color:#9ca3af;font-size:12px;border-bottom:1px solid #f3f4f6;'>" + dt + "</td>"
-                    "</tr>")
+            for i, t in enumerate(txns):
+                tx_id = "TX-" + str(8000+i) + chr(65+i%5)
+                if t["result"] == "FRAUD":
+                    status = '<span style="color:#ff3355;font-weight:700;">● BLOCKED</span>'
+                else:
+                    status = '<span style="color:#00ff66;font-weight:700;">● PASSED</span>'
+                conf = str(safe_conf(t["confidence"]))
+                amt  = "{:,.2f}".format(t["amount"])
+                dt   = str(t["checked_at"])
+                rows += "<tr style='border-bottom:1px solid rgba(0,255,102,0.06);'>"
+                rows += "<td style='padding:12px 16px;font-family:JetBrains Mono,monospace;font-size:14px;color:rgba(255,255,255,0.75);'>" + tx_id + "</td>"
+                rows += "<td style='padding:12px 16px;font-family:JetBrains Mono,monospace;font-size:15px;color:#fff;font-weight:700;'>&#8377;" + amt + "</td>"
+                rows += "<td style='padding:12px 16px;font-family:JetBrains Mono,monospace;font-size:14px;'>" + status + "</td>"
+                rows += "<td style='padding:12px 16px;font-family:JetBrains Mono,monospace;font-size:14px;color:#00ff66;font-weight:600;'>" + conf + "%</td>"
+                rows += "<td style='padding:12px 16px;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.3);'>" + dt + "</td>"
+                rows += "</tr>"
             H("<table style='width:100%;border-collapse:collapse;'>"
-              "<thead><tr style='background:#f9fafb;'>"
-              "<th style='padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;"
-              "text-transform:uppercase;letter-spacing:0.6px;border-bottom:1px solid #e5e7eb;'>Amount</th>"
-              "<th style='padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;"
-              "text-transform:uppercase;letter-spacing:0.6px;border-bottom:1px solid #e5e7eb;'>Result</th>"
-              "<th style='padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;"
-              "text-transform:uppercase;letter-spacing:0.6px;border-bottom:1px solid #e5e7eb;'>Confidence</th>"
-              "<th style='padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;"
-              "text-transform:uppercase;letter-spacing:0.6px;border-bottom:1px solid #e5e7eb;'>Time</th>"
+              "<thead><tr style='border-bottom:1px solid rgba(0,255,102,0.15);position:sticky;top:0;background:#0a0d0a;'>"
+              "<th style='padding:10px 16px;text-align:left;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>TX ID</th>"
+              "<th style='padding:10px 16px;text-align:left;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>Amount</th>"
+              "<th style='padding:10px 16px;text-align:left;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>Status</th>"
+              "<th style='padding:10px 16px;text-align:left;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>Confidence</th>"
+              "<th style='padding:10px 16px;text-align:left;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>Timestamp</th>"
               "</tr></thead><tbody>" + rows + "</tbody></table>")
-        card_close()
+        panel_close()
 
     with col2:
-        section_header("Quick Action")
-        card_open()
+        section_label("QUICK CHECK")
+        panel_open()
+        with st.expander("✎  CUSTOMIZE CARD DETAILS"):
+            ce1, ce2 = st.columns(2)
+            with ce1:
+                st.text_input("Last 4 digits", value=st.session_state.get("card_last4","7891"),
+                               max_chars=4, key="card_last4")
+            with ce2:
+                st.text_input("Card holder name", value=st.session_state.get("card_holder","FRAUD ANALYSIS"),
+                               key="card_holder")
+        _last4  = (st.session_state.get("card_last4") or "7891")
+        _holder = (st.session_state.get("card_holder") or "FRAUD ANALYSIS").upper()
+        H(cc_html(number=f"4532 •••• •••• {_last4}", holder=_holder))
+        H('<div style="font-family:JetBrains Mono,monospace;font-size:11px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">Enter Amount (₹)</div>')
+        quick_amount = st.number_input("Quick Amount", min_value=0.0, value=100.0,
+                                        format="%.2f", key="dash_quick_amount", label_visibility="collapsed")
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        if st.button("⚡ QUICK ANALYZE", key="dash_quick_analyze", use_container_width=True):
+            default_v = [0.5,-0.2,0.3,0.8,-0.1,0.2,-0.3,0.1,0.4,-0.2,0.1,0.3,-0.1,0.5,
+                         0.2,-0.1,0.3,0.1,-0.2,0.4,0.1,-0.3,0.2,0.1,0.3,-0.1,0.2,0.1]
+            features = np.array([[0.0] + default_v + [quick_amount]])
+            with st.spinner("ANALYZING..."):
+                time.sleep(0.4)
+                pred = model.predict(features)[0]
+                prob = float(model.predict_proba(features)[0][1]*100)
+            if pred == 1:
+                H("<div style='background:rgba(255,51,85,0.06);border:1px solid rgba(255,51,85,0.3);"
+                  "border-radius:6px;padding:14px 16px;margin-top:6px;font-family:JetBrains Mono,monospace;'>"
+                  "<span style='color:#ff3355;font-weight:800;font-size:14px;'>⚠ FRAUD RISK</span> "
+                  "<span style='color:rgba(255,255,255,0.5);font-size:12px;'>(" + str(round(prob,1)) + "% confidence)</span></div>")
+            else:
+                H("<div style='background:rgba(0,255,102,0.05);border:1px solid rgba(0,255,102,0.25);"
+                  "border-radius:6px;padding:14px 16px;margin-top:6px;font-family:JetBrains Mono,monospace;'>"
+                  "<span style='color:#00ff66;font-weight:800;font-size:14px;'>✓ LOOKS SAFE</span> "
+                  "<span style='color:rgba(255,255,255,0.5);font-size:12px;'>(" + str(round(100-prob,1)) + "% confidence)</span></div>")
         H("""
-        <div style="background:linear-gradient(135deg,#528ff0,#3b5fc0);border-radius:10px;
-             padding:14px 16px;margin-bottom:12px;position:relative;overflow:hidden;min-height:80px;">
-            <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;
-                 background:rgba(255,255,255,0.08);border-radius:50%;"></div>
-            <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.65);
-                 letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px;">🛡️ FRAUDGUARD</div>
-            <div style="width:22px;height:15px;background:rgba(255,255,255,0.22);
-                 border-radius:3px;margin-bottom:8px;"></div>
-            <div style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;
-                 color:rgba(255,255,255,0.75);letter-spacing:3px;">4532 •••• •••• 7891</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(255,255,255,0.25);
+             text-align:center;margin-top:16px;line-height:1.6;">
+            For full analysis with all risk factors,<br>use the Fraud Detection page.
         </div>
-        <div style="font-size:13px;color:#6b7280;text-align:center;margin-bottom:12px;line-height:1.5;">
-            Run fraud analysis on the Detection page</div>
         """)
-        if st.button("🔍  Analyze Transaction", key="dash_detect"):
-            st.session_state.active_page = "detection"; st.rerun()
-        card_close()
+        panel_close()
 
-# ══════════════════════════════════════════════════════
+    H('</div>')
+
+# ══════════════════════════════════════
 #  FRAUD DETECTION
-# ══════════════════════════════════════════════════════
+# ══════════════════════════════════════
 def show_detection():
+    show_bg()
+    show_topbar("DETECTION ENGINE")
+    show_sidebar()
+    show_page_nav("detection")
+
     FRAUD_VALS = [-3.0,0.0,-4.0,2.5,0.0,0.0,0.0,0.0,0.0,0.0,
                   0.0,0.0,0.0,-9.5,0.0,0.0,0.0,0.0,0.0,0.0,
                   0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]
@@ -416,201 +837,209 @@ def show_detection():
     }
 
     if st.session_state.get("preset_load") == "fraud":
-        for i,val in enumerate(FRAUD_VALS,1): st.session_state[f"pv{i}"] = float(val)
         st.session_state["preset_amount"] = 2.69
         st.session_state["preset_load"] = None
     elif st.session_state.get("preset_load") == "legit":
-        for i,val in enumerate(LEGIT_VALS,1): st.session_state[f"pv{i}"] = float(val)
         st.session_state["preset_amount"] = 149.62
         st.session_state["preset_load"] = None
 
-    hero("FRAUD DETECTION ENGINE",
-         "Transaction Analyzer 🔍",
-         "Fill in details —  Model processes all 28 PCA features automatically.")
+    H('<div style="position:relative;z-index:10;padding:10px 40px 16px;">')
+    H("""
+    <div style="margin-bottom:12px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#00ff66;
+             letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;">● XGBOOST MODEL ACTIVE</div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:34px;font-weight:800;color:#fff;">
+            Transaction Analyzer
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:rgba(255,255,255,0.3);margin-top:6px;">
+            Fill in details below · AI handles the 28-feature analysis automatically
+        </div>
+    </div>
+    """)
 
-    show_back_button(key="back_det")
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-    left, right = st.columns([1.3, 1], gap="medium")
+    left, right = st.columns([1.15, 0.85], gap="large")
 
     with left:
-        section_header("Transaction Details")
-        card_open()
-        H("""<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;
-             padding:10px 13px;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start;">
-            <span style="font-size:14px;flex-shrink:0;">ℹ️</span>
-            <div style="font-size:12px;color:#1e40af;line-height:1.5;">
-                Fill the fields below. XGBoost AI auto-processes all PCA features for real-time fraud verdict.
-            </div></div>""")
+        section_label("TRANSACTION DETAILS")
+        panel_open()
         c1, c2 = st.columns(2)
         with c1:
-            amount_val = st.number_input("💰 Amount (₹)", min_value=0.0,
+            amount_val = st.number_input("Amount (₹)", min_value=0.0,
                 value=float(st.session_state.get("preset_amount", 100.0)), format="%.2f")
         with c2:
-            hour = st.selectbox("🕐 Time of Day",
-                ["Morning (6AM–12PM)","Afternoon (12PM–6PM)","Evening (6PM–10PM)","Night (10PM–6AM)"])
-        txn_type = st.selectbox("🏪 Transaction Type",
+            hour = st.selectbox("Time of Transaction",
+                ["Morning (6AM-12PM)","Afternoon (12PM-6PM)","Evening (6PM-10PM)","Night (10PM-6AM)"])
+        txn_type = st.selectbox("Transaction Type",
             ["Online Shopping","ATM Withdrawal","Restaurant/Food","Travel/Hotel","Grocery/Supermarket"])
         c3, c4 = st.columns(2)
-        with c3: card_type = st.selectbox("💳 Card Type", ["Credit Card","Debit Card"])
-        with c4: location = st.selectbox("📍 Location",["Same City","Different City","International","Online"])
-        H("""<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;
-             padding:12px 14px;margin-top:12px;">
-            <div style="font-size:10px;font-weight:700;color:#6b7280;
-                 letter-spacing:0.6px;text-transform:uppercase;margin-bottom:10px;">⚠️ Risk Factors</div>""")
+        with c3: card_type = st.selectbox("Card Type", ["Credit Card","Debit Card"])
+        with c4: location  = st.selectbox("Location",  ["Same City","Different City","International","Online"])
+
+        H('<div style="height:1px;background:rgba(0,255,102,0.1);margin:20px 0 16px;"></div>')
+        H('<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;">Risk Factors</div>')
         rc1, rc2 = st.columns(2)
         with rc1:
-            is_new_merchant = st.checkbox("🆕 New Merchant")
-            is_foreign      = st.checkbox("🌍 Foreign Currency")
+            is_new_merchant = st.checkbox("New / Unknown Merchant")
+            is_foreign      = st.checkbox("Foreign Currency")
         with rc2:
-            is_unusual_amt  = st.checkbox("⚠️ Unusual Amount")
-            is_multiple     = st.checkbox("🔁 Multiple Txns")
-        H("</div>")
-        card_close()
+            is_unusual_amt  = st.checkbox("Unusual Amount")
+            is_multiple     = st.checkbox("Multiple Today")
+        panel_close()
 
     with right:
-        section_header("Analysis Panel")
-        card_open()
-        H("""
-        <div style="background:linear-gradient(135deg,#528ff0,#3b5fc0);border-radius:10px;
-             padding:14px 16px;margin-bottom:12px;position:relative;overflow:hidden;min-height:80px;">
-            <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;
-                 background:rgba(255,255,255,0.08);border-radius:50%;"></div>
-            <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.65);
-                 letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px;">🛡️ FRAUDGUARD</div>
-            <div style="width:22px;height:15px;background:rgba(255,255,255,0.22);
-                 border-radius:3px;margin-bottom:8px;"></div>
-            <div style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;
-                 color:rgba(255,255,255,0.75);letter-spacing:3px;">4532 •••• •••• 7891</div>
-        </div>
-        <div style="font-size:11px;font-weight:700;color:#9ca3af;
-             letter-spacing:0.6px;text-transform:uppercase;margin-bottom:9px;">Quick Test Presets</div>
-        """)
+        section_label("ANALYSIS PANEL")
+        panel_open()
+        with st.expander("✎  CUSTOMIZE CARD DETAILS"):
+            ce1, ce2 = st.columns(2)
+            with ce1:
+                st.text_input("Last 4 digits", value=st.session_state.get("card_last4","7891"),
+                               max_chars=4, key="card_last4_det")
+            with ce2:
+                st.text_input("Card holder name", value=st.session_state.get("card_holder","FRAUD ANALYSIS"),
+                               key="card_holder_det")
+        _last4  = (st.session_state.get("card_last4_det") or st.session_state.get("card_last4") or "7891")
+        _holder = (st.session_state.get("card_holder_det") or st.session_state.get("card_holder") or "FRAUD ANALYSIS").upper()
+        H(cc_html(number=f"4532 •••• •••• {_last4}", holder=_holder))
+        H('<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px;">Quick Test Presets</div>')
         p1, p2 = st.columns(2)
         with p1:
-            if st.button("🚨 Test Fraud", use_container_width=True, key="p_fraud"):
+            if st.button("🚨 FRAUD", use_container_width=True, key="p_fraud"):
                 st.session_state["preset_load"] = "fraud"; st.rerun()
         with p2:
-            if st.button("✅ Test Legit", use_container_width=True, key="p_legit"):
+            if st.button("✅ LEGIT", use_container_width=True, key="p_legit"):
                 st.session_state["preset_load"] = "legit"; st.rerun()
-        H("""<div style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0;">
-            <span style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;
-                 padding:3px 9px;font-size:11px;color:#3b82f6;font-weight:600;">🤖 XGBoost</span>
-            <span style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;
-                 padding:3px 9px;font-size:11px;color:#3b82f6;font-weight:600;">⚡ Real-time</span>
-            <span style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;
-                 padding:3px 9px;font-size:11px;color:#3b82f6;font-weight:600;">📊 284K rows</span>
-        </div>""")
-        card_close()
+        H("<div style='height:8px'></div>")
 
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-        if st.button("🔍  Analyze Transaction Now", key="btn_analyze", use_container_width=True):
-            risk_score = 0.0
-            if is_new_merchant: risk_score += 0.28
-            if is_unusual_amt:  risk_score += 0.25
-            if is_foreign:      risk_score += 0.18
-            if is_multiple:     risk_score += 0.20
-            if "Night" in hour:              risk_score += 0.10
-            if location == "International":  risk_score += 0.15
-            if amount_val > 50000:           risk_score += 0.20
-            elif amount_val > 10000:         risk_score += 0.10
-            risk_score = min(risk_score, 1.0)
-
-            base     = np.array(PATTERNS[txn_type])
-            fvec     = np.array(FRAUD_VALS)
-            v        = list(base * (1.0 - risk_score) + fvec * risk_score)
-            hour_map = {"Morning (6AM–12PM)":6*3600,"Afternoon (12PM–6PM)":12*3600,
-                        "Evening (6PM–10PM)":18*3600,"Night (10PM–6AM)":22*3600}
-            features = np.array([[float(hour_map.get(hour,0))] + v + [amount_val]])
-
-            with st.spinner("Analyzing..."):
-                time.sleep(0.5)
+        if st.button("◎ ANALYZE TRANSACTION", key="btn_analyze", use_container_width=True):
+            v = list(PATTERNS[txn_type])
+            if is_new_merchant: v[0]-=2.0; v[2]-=1.5; v[4]+=1.0
+            if is_unusual_amt:  v[1]-=1.5; v[3]+=2.0; v[13]-=2.0
+            if is_foreign:      v[5]-=1.0; v[7]+=1.5; v[11]-=1.0
+            if is_multiple:     v[0]-=1.0; v[2]-=2.0; v[14]-=1.5
+            if "Night" in hour: v[0]-=0.5; v[2]-=0.5
+            if location=="International": v[5]-=1.5; v[11]-=1.0
+            if st.session_state.get("preset_amount")==2.69: v = FRAUD_VALS[:]
+            elif st.session_state.get("preset_amount")==149.62: v = LEGIT_VALS[:]
+            hour_map = {"Morning (6AM-12PM)":6*3600,"Afternoon (12PM-6PM)":12*3600,
+                        "Evening (6PM-10PM)":18*3600,"Night (10PM-6AM)":22*3600}
+            time_val = float(hour_map.get(hour,0))
+            features = np.array([[time_val]+v+[amount_val]])
+            with st.spinner("ANALYZING..."):
+                time.sleep(0.6)
                 pred = model.predict(features)[0]
-                prob = float(model.predict_proba(features)[0][1] * 100)
-
+                prob = float(model.predict_proba(features)[0][1]*100)
             result_str = "FRAUD" if pred==1 else "LEGIT"
             conf_val   = prob if pred==1 else (100-prob)
             log_transaction(st.session_state.user["id"], amount_val, result_str, conf_val)
 
             if pred == 1:
-                bar = min(int(prob), 100)
-                H("<div style='background:#fef2f2;border:1px solid #fecaca;border-left:4px solid #ef4444;"
-                  "border-radius:10px;padding:16px 18px;margin-top:10px;'>"
-                  "<div style='font-size:17px;font-weight:800;color:#dc2626;margin-bottom:4px;'>🚨 Fraudulent!</div>"
-                  "<div style='font-size:12px;color:#6b7280;margin-bottom:4px;line-height:1.5;'>High-risk patterns detected. Matches known fraud signatures.</div>"
-                  "<div style='font-size:12px;color:#ef4444;font-weight:600;margin-bottom:14px;'>⚠️ Recommend blocking this transaction.</div>"
-                  "<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;'>"
-                  "<div style='font-size:10px;font-weight:700;color:#9ca3af;letter-spacing:0.6px;text-transform:uppercase;'>Fraud Probability</div>"
-                  "<div style='font-size:34px;font-weight:800;color:#dc2626;font-family:JetBrains Mono,monospace;line-height:1;'>" + str(round(prob,1)) + "%</div></div>"
-                  "<div style='background:#fee2e2;border-radius:100px;height:8px;overflow:hidden;'>"
-                  "<div style='width:" + str(bar) + "%;height:8px;border-radius:100px;background:linear-gradient(90deg,#dc2626,#f87171);'></div></div></div>")
+                bar = min(int(prob),100)
+                H("<div style='background:rgba(255,51,85,0.05);border:1px solid rgba(255,51,85,0.3);"
+                  "border-left:3px solid #ff3355;border-radius:6px;padding:22px 24px;margin-top:16px;'>"
+                  "<div style='font-family:JetBrains Mono,monospace;font-size:16px;font-weight:800;color:#ff3355;margin-bottom:6px;'>⚠ FRAUD DETECTED</div>"
+                  "<div style='font-family:JetBrains Mono,monospace;font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:18px;line-height:1.6;'>HIGH-RISK PATTERN MATCH · RECOMMEND BLOCK</div>"
+                  "<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px;'>"
+                  "<span style='font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>FRAUD PROBABILITY</span>"
+                  "<span style='font-family:JetBrains Mono,monospace;font-size:32px;font-weight:800;color:#ff3355;'>" + str(round(prob,1)) + "%</span></div>"
+                  "<div style='background:rgba(255,51,85,0.1);border-radius:2px;height:6px;overflow:hidden;'>"
+                  "<div style='width:" + str(bar) + "%;height:6px;background:#ff3355;'></div></div></div>")
             else:
-                safe = 100 - prob
-                bar  = min(int(safe), 100)
-                H("<div style='background:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #10b981;"
-                  "border-radius:10px;padding:16px 18px;margin-top:10px;'>"
-                  "<div style='font-size:17px;font-weight:800;color:#15803d;margin-bottom:4px;'>✅ Legitimate!</div>"
-                  "<div style='font-size:12px;color:#6b7280;margin-bottom:4px;line-height:1.5;'>No suspicious patterns. Transaction appears genuine and safe.</div>"
-                  "<div style='font-size:12px;color:#10b981;font-weight:600;margin-bottom:14px;'>✓ Safe to proceed.</div>"
-                  "<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;'>"
-                  "<div style='font-size:10px;font-weight:700;color:#9ca3af;letter-spacing:0.6px;text-transform:uppercase;'>Confidence</div>"
-                  "<div style='font-size:34px;font-weight:800;color:#15803d;font-family:JetBrains Mono,monospace;line-height:1;'>" + str(round(safe,1)) + "%</div></div>"
-                  "<div style='background:#dcfce7;border-radius:100px;height:8px;overflow:hidden;'>"
-                  "<div style='width:" + str(bar) + "%;height:8px;border-radius:100px;background:linear-gradient(90deg,#15803d,#4ade80);'></div></div></div>")
+                safe = 100-prob
+                bar  = min(int(safe),100)
+                H("<div style='background:rgba(0,255,102,0.04);border:1px solid rgba(0,255,102,0.25);"
+                  "border-left:3px solid #00ff66;border-radius:6px;padding:22px 24px;margin-top:16px;'>"
+                  "<div style='font-family:JetBrains Mono,monospace;font-size:16px;font-weight:800;color:#00ff66;margin-bottom:6px;'>✓ LEGITIMATE</div>"
+                  "<div style='font-family:JetBrains Mono,monospace;font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:18px;line-height:1.6;'>NO SUSPICIOUS PATTERNS · SAFE TO PROCEED</div>"
+                  "<div style='display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px;'>"
+                  "<span style='font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>CONFIDENCE</span>"
+                  "<span style='font-family:JetBrains Mono,monospace;font-size:32px;font-weight:800;color:#00ff66;'>" + str(round(safe,1)) + "%</span></div>"
+                  "<div style='background:rgba(0,255,102,0.1);border-radius:2px;height:6px;overflow:hidden;'>"
+                  "<div style='width:" + str(bar) + "%;height:6px;background:#00ff66;'></div></div></div>")
+        panel_close()
 
-# ══════════════════════════════════════════════════════
-#  HISTORY
-# ══════════════════════════════════════════════════════
+    H('</div>')
+
+# ══════════════════════════════════════
+#  HISTORY / INCIDENTS
+# ══════════════════════════════════════
 def show_history():
-    hero("TRANSACTION LOG", "Transaction History 📋",
-         "Full log of all fraud checks on your account.")
+    show_bg()
+    show_topbar("INCIDENTS")
+    show_sidebar()
+    show_page_nav("history")
 
-    show_back_button(key="back_hist")
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    section_header("All Transactions")
-    card_open()
     txns = get_user_transactions(st.session_state.user["id"], limit=50)
+    fraud_ct = sum(1 for t in txns if t["result"]=="FRAUD")
+
+    H('<div style="position:relative;z-index:10;padding:10px 40px 16px;">')
+    H(f"""
+    <div style="margin-bottom:12px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#00ff66;
+             letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;">● INCIDENT LOG</div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:34px;font-weight:800;color:#fff;">
+            Alert Queue
+        </div>
+    </div>
+    """)
+
+    c1, c2, c3 = st.columns(3)
+    with c1: H(metric_card("TOTAL LOGGED", len(txns), "ALL TIME", "#00ff66", "▤"))
+    with c2: H(metric_card("FRAUD FLAGGED", fraud_ct, "BLOCKED", "#ff3355", "⚠"))
+    with c3: H(metric_card("CLEAN", len(txns)-fraud_ct, "PASSED", "#00ff66", "✓"))
+
+    H("<div style='height:8px'></div>")
+    section_label("ALL TRANSACTIONS", len(txns))
+    panel_open("max-height:min(46vh,420px);overflow-y:auto;")
     if not txns:
-        H('<div style="text-align:center;padding:48px 0;"><div style="font-size:48px;margin-bottom:10px;">📭</div>'
-          '<div style="font-size:18px;font-weight:700;color:#111827;margin-bottom:4px;">No transactions yet</div>'
-          '<div style="font-size:13px;color:#9ca3af;">Start analyzing transactions to see history here.</div></div>')
+        H("""
+        <div style="text-align:center;padding:64px 20px;">
+            <div style="font-size:40px;margin-bottom:12px;opacity:0.3;">◌</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:13px;
+                 color:rgba(255,255,255,0.3);">NO INCIDENTS LOGGED YET</div>
+        </div>
+        """)
     else:
         rows = ""
-        for t in txns:
+        for i, t in enumerate(txns):
+            tx_id = "TX-" + str(9000-i) + chr(65+i%5)
+            if t["result"] == "FRAUD":
+                sev = '<span style="background:rgba(255,51,85,0.1);color:#ff3355;font-size:10px;font-weight:700;padding:3px 10px;border-radius:3px;border:1px solid rgba(255,51,85,0.3);letter-spacing:0.5px;">CRITICAL</span>'
+                status = '<span style="color:#ff3355;">● BLOCKED</span>'
+            else:
+                sev = '<span style="background:rgba(0,255,102,0.08);color:#00ff66;font-size:10px;font-weight:700;padding:3px 10px;border-radius:3px;border:1px solid rgba(0,255,102,0.25);letter-spacing:0.5px;">LOW</span>'
+                status = '<span style="color:#00ff66;">● RESOLVED</span>'
             amt = "{:,.2f}".format(t["amount"])
-            dt  = str(t["checked_at"])[:16]
-            rows += ("<tr>"
-                "<td style='padding:11px 14px;color:#111827;font-weight:600;font-size:13px;"
-                "border-bottom:1px solid #f3f4f6;font-family:JetBrains Mono,monospace;'>₹" + amt + "</td>"
-                "<td style='padding:11px 14px;border-bottom:1px solid #f3f4f6;'>" + badge(t["result"]) + "</td>"
-                "<td style='padding:11px 14px;color:#528ff0;font-weight:700;font-family:JetBrains Mono,"
-                "monospace;font-size:13px;border-bottom:1px solid #f3f4f6;'>" + str(safe_conf(t["confidence"])) + "%</td>"
-                "<td style='padding:11px 14px;color:#9ca3af;font-size:12px;border-bottom:1px solid #f3f4f6;'>" + dt + "</td>"
-                "</tr>")
+            dt  = str(t["checked_at"])
+            rows += "<tr style='border-bottom:1px solid rgba(0,255,102,0.06);'>"
+            rows += "<td style='padding:14px 18px;font-family:JetBrains Mono,monospace;font-size:12px;color:#fff;font-weight:600;'>" + tx_id + "</td>"
+            rows += "<td style='padding:14px 18px;'>" + sev + "</td>"
+            rows += "<td style='padding:14px 18px;font-family:JetBrains Mono,monospace;font-size:15px;color:#fff;font-weight:700;'>&#8377;" + amt + "</td>"
+            rows += "<td style='padding:14px 18px;font-family:JetBrains Mono,monospace;font-size:12px;font-weight:600;'>" + status + "</td>"
+            rows += "<td style='padding:14px 18px;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.3);'>" + dt + "</td>"
+            rows += "</tr>"
         H("<table style='width:100%;border-collapse:collapse;'>"
-          "<thead><tr style='background:#f9fafb;'>"
-          "<th style='padding:9px 14px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;"
-          "text-transform:uppercase;letter-spacing:0.6px;border-bottom:1px solid #e5e7eb;'>Amount</th>"
-          "<th style='padding:9px 14px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;"
-          "text-transform:uppercase;letter-spacing:0.6px;border-bottom:1px solid #e5e7eb;'>Result</th>"
-          "<th style='padding:9px 14px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;"
-          "text-transform:uppercase;letter-spacing:0.6px;border-bottom:1px solid #e5e7eb;'>Confidence</th>"
-          "<th style='padding:9px 14px;text-align:left;font-size:10px;font-weight:700;color:#6b7280;"
-          "text-transform:uppercase;letter-spacing:0.6px;border-bottom:1px solid #e5e7eb;'>Date & Time</th>"
+          "<thead><tr style='border-bottom:1px solid rgba(0,255,102,0.15);position:sticky;top:0;background:#0a0d0a;'>"
+          "<th style='padding:10px 18px;text-align:left;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>Incident</th>"
+          "<th style='padding:10px 18px;text-align:left;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>Severity</th>"
+          "<th style='padding:10px 18px;text-align:left;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>Amount</th>"
+          "<th style='padding:10px 18px;text-align:left;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>Status</th>"
+          "<th style='padding:10px 18px;text-align:left;font-family:JetBrains Mono,monospace;font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:1px;text-transform:uppercase;'>Timestamp</th>"
           "</tr></thead><tbody>" + rows + "</tbody></table>")
-    card_close()
+    panel_close()
+    H('</div>')
 
-# ══════════════════════════════════════════════════════
+# ══════════════════════════════════════
 #  ROUTER
-# ══════════════════════════════════════════════════════
+# ══════════════════════════════════════
 if st.session_state.user is None:
-    show_auth_page()
+    if st.session_state.view == "landing":
+        show_landing_page()
+    elif st.session_state.view == "profile_setup":
+        show_profile_setup()
+    else:
+        show_auth_page()
 else:
-    show_sidebar()
     page = st.session_state.active_page
     if   page == "dashboard": show_dashboard()
     elif page == "detection": show_detection()
     elif page == "history":   show_history()
-    H('<div style="text-align:center;padding:16px 0 10px;border-top:1px solid #e5e7eb;margin-top:16px;'
-      'color:#d1d5db;font-size:12px;">🛡️ FraudGuard ·Fraud Detection · XGBoost + Streamlit</div>')

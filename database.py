@@ -26,13 +26,36 @@ def init_db():
     # Users table
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id        INTEGER PRIMARY KEY AUTOINCREMENT,
-            full_name TEXT    NOT NULL,
-            email     TEXT    UNIQUE NOT NULL,
-            password  TEXT    NOT NULL,
-            created   TEXT    NOT NULL
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            full_name     TEXT    NOT NULL,
+            email         TEXT    UNIQUE NOT NULL,
+            password      TEXT    NOT NULL,
+            created       TEXT    NOT NULL,
+            mobile_number TEXT,
+            dob           TEXT,
+            bank_name     TEXT,
+            card_number   TEXT,
+            fraud_type    TEXT,
+            profile_done  INTEGER DEFAULT 0
         )
     """)
+
+    # Migration: add the extra profile columns if this DB was created
+    # before they existed (ALTER TABLE, since CREATE TABLE IF NOT EXISTS
+    # won't touch an already-existing table).
+    c.execute("PRAGMA table_info(users)")
+    existing_cols = {row[1] for row in c.fetchall()}
+    profile_cols = {
+        "mobile_number": "TEXT",
+        "dob":           "TEXT",
+        "bank_name":     "TEXT",
+        "card_number":   "TEXT",
+        "fraud_type":    "TEXT",
+        "profile_done":  "INTEGER DEFAULT 0",
+    }
+    for col, col_type in profile_cols.items():
+        if col not in existing_cols:
+            c.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
 
     # Transaction history table
     c.execute("""
@@ -57,7 +80,7 @@ def _hash(password: str) -> str:
 
 def register_user(full_name: str, email: str, password: str):
     """
-    Returns (True, "Success") or (False, "error message").
+    Returns (True, "Success", user_id) or (False, "error message", None).
     """
     conn = _connect()
     c = conn.cursor()
@@ -68,11 +91,45 @@ def register_user(full_name: str, email: str, password: str):
              datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         )
         conn.commit()
-        return True, "Account created successfully!"
+        return True, "Account created successfully!", c.lastrowid
     except sqlite3.IntegrityError:
-        return False, "This email is already registered."
+        return False, "This email is already registered.", None
     finally:
         conn.close()
+
+
+def email_exists(email: str) -> bool:
+    """Check whether an email is already registered."""
+    conn = _connect()
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM users WHERE email=?", (email.strip().lower(),))
+    row = c.fetchone()
+    conn.close()
+    return row is not None
+
+
+def save_profile_details(user_id: int, mobile_number: str, dob: str,
+                          bank_name: str, card_number: str, fraud_type: str):
+    """Save the post-signup profile details (card, bank, DOB, mobile, fraud type)."""
+    conn = _connect()
+    c = conn.cursor()
+    c.execute(
+        "UPDATE users SET mobile_number=?, dob=?, bank_name=?, card_number=?, "
+        "fraud_type=?, profile_done=1 WHERE id=?",
+        (mobile_number.strip(), dob, bank_name.strip(), card_number.strip(),
+         fraud_type, user_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_profile_skipped(user_id: int):
+    """Mark the profile step as handled even if the user chose to skip it."""
+    conn = _connect()
+    c = conn.cursor()
+    c.execute("UPDATE users SET profile_done=1 WHERE id=?", (user_id,))
+    conn.commit()
+    conn.close()
 
 
 def login_user(email: str, password: str):
