@@ -1,0 +1,136 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box;}
+html,body,[class*="css"]{font-family:'Space Grotesk',sans-serif!important;}
+#MainMenu,footer{visibility:hidden;}
+header{background:transparent!important;box-shadow:none!important;}
+header [data-testid="stToolbar"]{visibility:hidden!important;}
+[data-testid="stSidebarCollapsedControl"]{visibility:visible!important;display:flex!important;z-index:999999!important;}
+[data-testid="stSidebarCollapsedControl"] button{background:#0a0d0a!important;border:1px solid rgba(0,255,102,0.4)!important;border-radius:6px!important;}
+[data-testid="stSidebarCollapsedControl"] svg{color:#00ff66!important;fill:#00ff66!important;}
+[data-testid="collapsedControl"]{visibility:visible!important;display:flex!important;z-index:999999!important;}
+[data-testid="collapsedControl"] svg{color:#00ff66!important;fill:#00ff66!important;}
+.stApp{background:#050705!important;}
+section[data-testid="stSidebar"]{background:#0a0d0a!important;border-right:1px solid rgba(0,255,102,0.1)!important;}
+.stButton>button{
+    background:#00ff66!important;
+    color:#000!important;border:1px solid #00ff66!important;border-radius:4px!important;
+    padding:11px 24px!important;font-size:15px!important;font-weight:700!important;
+    font-family:'JetBrains Mono',monospace!important;width:100%!important;
+    letter-spacing:1px!important;text-transform:uppercase!important;
+    box-shadow:0 0 20px rgba(0,255,102,0.25)!important;
+    transition:all 0.2s ease!important;
+}
+.stButton>button:hover{
+    background:#00e85c!important;
+    box-shadow:0 0 30px rgba(0,255,102,0.5)!important;
+    transform:translateY(-1px)!important;
+}
+.stTextInput label,.stNumberInput label,.stSelectbox label{
+    color:rgba(0,255,102,0.7)!important;font-size:13px!important;
+    font-weight:700!important;letter-spacing:1px!important;text-transform:uppercase!important;
+    font-family:'JetBrains Mono',monospace!important;
+}
+.stTextInput input,.stNumberInput input{
+    background:#0a0d0a!important;
+    border:1px solid rgba(0,255,102,0.2)!important;
+    border-radius:6px!important;color:#e8ffe8!important;
+    font-size:16px!important;padding:12px 14px!important;font-family:'JetBrains Mono',monospace!important;
+}
+.stTextInput input:focus,.stNumberInput input:focus{
+    border-color:rgba(0,255,102,0.6)!important;
+    box-shadow:0 0 0 2px rgba(0,255,102,0.1)!important;
+}
+div[data-baseweb="select"]>div{
+    background:#0a0d0a!important;
+    border:1px solid rgba(0,255,102,0.2)!important;
+    border-radius:4px!important;color:#e8ffe8!important;
+    font-family:'JetBrains Mono',monospace!important;
+}
+.stCheckbox label{color:rgba(255,255,255,0.7)!important;font-size:13px!important;font-family:'JetBrains Mono',monospace!important;}
+.stTabs [data-baseweb="tab-list"]{
+    background:#0a0d0a;border-radius:4px;padding:3px;
+    border:1px solid rgba(0,255,102,0.15);gap:2px;
+}
+.stTabs [data-baseweb="tab"]{
+    border-radius:4px;font-size:14px;font-weight:700;
+    color:rgba(255,255,255,0.4);padding:12px 26px;
+    font-family:'JetBrains Mono',monospace;letter-spacing:1px;text-transform:uppercase;
+}
+.stTabs [aria-selected="true"]{
+    background:rgba(0,255,102,0.1)!important;
+    color:#00ff66!important;
+    border:1px solid rgba(0,255,102,0.3)!important;
+}
+.stTabs [data-baseweb="tab-border"]{display:none!important;}
+::-webkit-scrollbar{width:4px;}
+::-webkit-scrollbar-track{background:#050705;}
+::-webkit-scrollbar-thumb{background:#00ff66;border-radius:100px;}
+/* ── Reclaim Streamlit's default chrome so the app fits one screen ── */
+header[data-testid="stHeader"]{height:2.2rem!important;min-height:2.2rem!important;}
+.block-container{
+    padding-top:0.6rem!important;
+    padding-bottom:0.6rem!important;
+    max-width:100%!important;
+}
+[data-testid="stVerticalBlock"]{gap:0.35rem!important;}
+div[data-testid="stElementContainer"]{margin-bottom:0!important;}
+section[data-testid="stSidebar"] .block-container{padding-top:0.4rem!important;}
+@keyframes blip{0%,100%{opacity:1}50%{opacity:0.3}}
+@keyframes scan{0%{background-position:0 0}100%{background-position:0 40px}}
+
+/* ── Landing page: nav links — bigger, clearer clickable pills ── */
+.st-key-landing_nav_links{
+    max-width:640px!important;
+    margin-left:auto!important;
+}
+.st-key-landing_nav_links .stButton>button{
+    background:transparent!important;
+    border:1px solid transparent!important;
+    box-shadow:none!important;
+    color:rgba(255,255,255,0.6)!important;
+    font-size:14.5px!important;
+    font-weight:700!important;
+    letter-spacing:1.2px!important;
+    padding:10px 16px!important;
+    border-radius:6px!important;
+}
+.st-key-landing_nav_links .stButton>button:hover{
+    color:#00ff66!important;
+    background:rgba(0,255,102,0.08)!important;
+    border:1px solid rgba(0,255,102,0.3)!important;
+    transform:none!important;
+    box-shadow:none!important;
+}
+
+/* ── Landing page: hero CTAs — solid primary, ghost secondary ── */
+.st-key-landing_hero_ctas{
+    max-width:480px!important;
+}
+.st-key-landing_hero_ctas [data-testid="stHorizontalBlock"]{
+    flex-wrap:nowrap!important;
+    gap:16px!important;
+}
+.st-key-landing_hero_ctas button[kind="primary"]{
+    background:#00ff66!important;
+    color:#000!important;
+    font-size:16px!important;
+    padding:14px 22px!important;
+    box-shadow:0 0 28px rgba(0,255,102,0.4)!important;
+}
+.st-key-landing_hero_ctas button[kind="primary"]:hover{
+    box-shadow:0 0 40px rgba(0,255,102,0.65)!important;
+}
+.st-key-landing_hero_ctas button[kind="secondary"]{
+    background:transparent!important;
+    border:1px solid rgba(0,255,102,0.4)!important;
+    color:#00ff66!important;
+    box-shadow:none!important;
+    font-size:16px!important;
+    padding:14px 22px!important;
+}
+.st-key-landing_hero_ctas button[kind="secondary"]:hover{
+    background:rgba(0,255,102,0.08)!important;
+    border-color:#00ff66!important;
+    box-shadow:none!important;
+    transform:none!important;
+}

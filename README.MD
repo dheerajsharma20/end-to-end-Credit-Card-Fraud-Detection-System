@@ -24,12 +24,12 @@ An end-to-end credit card fraud detection web app built with **Streamlit** and a
 ```
 .
 ├── app.py              # Main Streamlit app — UI, routing, auth flow, detection logic
-├── database.py         # SQLite helpers: user accounts + transaction history
+├── database.py         # SQLite helpers: user accounts, password reset, transaction history
 ├── fraud_model.pkl     # Pre-trained XGBoost fraud classifier
 ├── requirements.txt    # Python dependencies
 ├── .streamlit/
 │   └── config.toml     # Streamlit theme config
-└── style.css            # (currently unused placeholder)
+└── style.css            # Global CSS (dark theme, buttons, inputs, tabs, scrollbar) — loaded by app.py at startup
 ```
 
 ## Setup & Run
@@ -68,12 +68,18 @@ The model expects 30 input features (time, 28 PCA-derived components `V1`–`V28
 
 This makes the demo interactive and educational, but it's worth knowing the inputs are a simulated approximation rather than genuine PCA-transformed transaction data — a real production system would feed the model live, properly transformed transaction features.
 
+## Security Features
+
+- **Password hashing** uses `bcrypt` with a per-user random salt baked into every hash. Accounts created before this change (unsalted SHA-256) are transparently upgraded to bcrypt the next time that user signs in — no manual migration needed.
+- **Password reset** is available from the Sign In screen ("Forgot password?"). It issues a 6-digit code with a 15-minute expiry. Since this demo has no email server configured, the code is shown directly on screen instead of being emailed — swap in a real email provider (SendGrid, SES, etc.) for production use.
+- **Card Type** now feeds into the fraud risk score: Debit Card transactions are nudged toward higher risk (fewer chargeback protections than credit cards), especially combined with foreign/international use.
+- **Session timeout**: users are auto-logged-out after 15 minutes of inactivity. Note this is checked on each Streamlit rerun (i.e. the next time the user interacts with the app), since Streamlit doesn't run a background timer — a genuinely idle browser tab won't be kicked out until the next click.
+
 ## Known Limitations / Ideas for Improvement
 
-- **Password hashing** uses unsalted SHA-256. For anything beyond a demo, switch to `bcrypt` or `argon2` with per-user salts.
-- **Card Type** is currently captured in the UI but not yet factored into the risk score — could be a small enhancement.
-- No password reset, email verification, or session timeout.
-- The fraud "model" runs on synthetic blended features rather than real transaction PCA components (see above) — fine for demoing, but should be called out if presenting this as production-grade.
+- No email verification on signup.
+- Password reset codes are shown on-screen rather than emailed (see above) — fine for a demo, not for production.
+- The fraud "model" runs on synthetic blended features rather than real transaction PCA components (see above) — fine for demoing, but should be called out if presenting this as production-grade. A "How This Analysis Works" note is now shown directly on the Detection page for transparency.
 
 ## License
 
